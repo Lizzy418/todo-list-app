@@ -165,4 +165,42 @@ describe('server API services', () => {
     expect(todos).toHaveLength(1);
     expect(todos[0].title).toBe('진행 Todo');
   });
+
+  it('PostgreSQL JSONB 태그 배열을 가진 Todo의 완료 상태를 수정한다.', async () => {
+    const updates = [];
+    const db = {
+      async findTodoById() {
+        return {
+          id: '1',
+          user_id: '1',
+          text: '태그 있는 Todo',
+          completed: false,
+          due_date: '',
+          priority: 'normal',
+          tags: ['업무', '공부']
+        };
+      },
+      async updateTodo(userId, todoId, todo) {
+        updates.push(todo);
+        return {
+          id: todoId,
+          title: todo.text,
+          completed: Boolean(todo.completed),
+          dueDate: todo.due_date,
+          priority: todo.priority,
+          tags: JSON.parse(todo.tags)
+        };
+      }
+    };
+
+    const response = await updateTodo(db, '1', '1', { completed: true });
+
+    expect(response.status).toBe(200);
+    expect(updates[0].tags).toBe(JSON.stringify(['업무', '공부']));
+    expect(response.body.todo).toMatchObject({
+      title: '태그 있는 Todo',
+      completed: true,
+      tags: ['업무', '공부']
+    });
+  });
 });

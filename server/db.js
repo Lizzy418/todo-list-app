@@ -2,6 +2,7 @@ const { mkdirSync } = require('node:fs');
 const { dirname, resolve } = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
 const { Pool } = require('pg');
+const { logInfo } = require('./logger');
 const { mapTodoRow } = require('./todoMapper');
 
 const DEFAULT_DATABASE_FILE = resolve(process.cwd(), 'server/data/todolist.sqlite');
@@ -87,7 +88,9 @@ const createSqliteClient = (databaseFile = process.env.DATABASE_FILE || DEFAULT_
       const result = db
         .prepare('INSERT INTO users (email, password_hash) VALUES (?, ?)')
         .run(email, passwordHash);
-      return db.prepare('SELECT id, email FROM users WHERE id = ?').get(result.lastInsertRowid);
+      const user = db.prepare('SELECT id, email FROM users WHERE id = ?').get(result.lastInsertRowid);
+      logInfo('db.insert.users', { dialect: 'sqlite', userId: String(user.id), email: user.email });
+      return user;
     },
     async listTodos(userId) {
       return db
@@ -105,7 +108,13 @@ const createSqliteClient = (databaseFile = process.env.DATABASE_FILE || DEFAULT_
       const row = db
         .prepare('SELECT * FROM todos WHERE id = ? AND user_id = ?')
         .get(result.lastInsertRowid, userId);
-      return normalizeSqliteTodoRow(row);
+      const normalizedTodo = normalizeSqliteTodoRow(row);
+      logInfo('db.insert.todos', {
+        dialect: 'sqlite',
+        userId: String(userId),
+        todoId: normalizedTodo.id
+      });
+      return normalizedTodo;
     },
     async findTodoById(userId, todoId) {
       const row = db.prepare('SELECT * FROM todos WHERE id = ? AND user_id = ?').get(todoId, userId);
@@ -126,13 +135,29 @@ const createSqliteClient = (databaseFile = process.env.DATABASE_FILE || DEFAULT_
         userId
       );
       const row = db.prepare('SELECT * FROM todos WHERE id = ? AND user_id = ?').get(todoId, userId);
-      return normalizeSqliteTodoRow(row);
+      const normalizedTodo = normalizeSqliteTodoRow(row);
+      logInfo('db.update.todos', {
+        dialect: 'sqlite',
+        userId: String(userId),
+        todoId: String(todoId)
+      });
+      return normalizedTodo;
     },
     async deleteTodo(userId, todoId) {
       db.prepare('DELETE FROM todos WHERE id = ? AND user_id = ?').run(todoId, userId);
+      logInfo('db.delete.todos', {
+        dialect: 'sqlite',
+        userId: String(userId),
+        todoId: String(todoId)
+      });
     },
     async deleteCompletedTodos(userId) {
-      db.prepare('DELETE FROM todos WHERE user_id = ? AND completed = 1').run(userId);
+      const result = db.prepare('DELETE FROM todos WHERE user_id = ? AND completed = 1').run(userId);
+      logInfo('db.delete.todos.completed', {
+        dialect: 'sqlite',
+        userId: String(userId),
+        deletedCount: result.changes
+      });
     }
   };
 };
@@ -167,6 +192,11 @@ const createPostgresClient = (databaseUrl = process.env.DATABASE_URL) => {
         'INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id, email',
         [email, passwordHash]
       );
+      logInfo('db.insert.users', {
+        dialect: 'postgres',
+        userId: String(result.rows[0].id),
+        email: result.rows[0].email
+      });
       return result.rows[0];
     },
     async listTodos(userId) {
@@ -183,7 +213,13 @@ const createPostgresClient = (databaseUrl = process.env.DATABASE_URL) => {
          RETURNING *`,
         [userId, todo.title, todo.dueDate, todo.priority, JSON.stringify(todo.tags)]
       );
-      return normalizePostgresTodoRow(result.rows[0]);
+      const normalizedTodo = normalizePostgresTodoRow(result.rows[0]);
+      logInfo('db.insert.todos', {
+        dialect: 'postgres',
+        userId: String(userId),
+        todoId: normalizedTodo.id
+      });
+      return normalizedTodo;
     },
     async findTodoById(userId, todoId) {
       const result = await pool.query('SELECT * FROM todos WHERE id = $1 AND user_id = $2', [
@@ -193,20 +229,43 @@ const createPostgresClient = (databaseUrl = process.env.DATABASE_URL) => {
       return result.rows[0] || null;
     },
     async updateTodo(userId, todoId, todo) {
+      const tags = Array.isArray(todo.tags) ? JSON.stringify(todo.tags) : todo.tags || '[]';
       const result = await pool.query(
         `UPDATE todos
          SET text = $1, completed = $2, due_date = $3, priority = $4, tags = $5::jsonb, updated_at = NOW()
          WHERE id = $6 AND user_id = $7
          RETURNING *`,
-        [todo.text, Boolean(todo.completed), todo.due_date, todo.priority, todo.tags, todoId, userId]
+        [todo.text, Boolean(todo.completed), todo.due_date, todo.priority, tags, todoId, userId]
       );
-      return normalizePostgresTodoRow(result.rows[0]);
+      const normalizedTodo = normalizePostgresTodoRow(result.rows[0]);
+      logInfo('db.update.todos', {
+        dialect: 'postgres',
+        userId: String(userId),
+        todoId: String(todoId)
+      });
+      return normalizedTodo;
     },
     async deleteTodo(userId, todoId) {
-      await pool.query('DELETE FROM todos WHERE id = $1 AND user_id = $2', [todoId, userId]);
+      const result = await pool.query('DELETE FROM todos WHERE id = $1 AND user_id = $2', [
+        todoId,
+        userId
+      ]);
+      logInfo('db.delete.todos', {
+        dialect: 'postgres',
+        userId: String(userId),
+        todoId: String(todoId),
+        deletedCount: result.rowCount
+      });
     },
     async deleteCompletedTodos(userId) {
-      await pool.query('DELETE FROM todos WHERE user_id = $1 AND completed = TRUE', [userId]);
+      const result = await pool.query('DELETE FROM todos WHERE user_id = $1 AND completed = TRUE', [
+        userId
+      ]);
+      logInfo('db.delete.todos.completed', {
+        dialect: 'postgres',
+        userId: String(userId),
+        deletedCount: result.rowCount
+      });
     }
   };
 };

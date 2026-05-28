@@ -99,6 +99,18 @@ const createTodo = async (db, userId, todo) => {
   };
 };
 
+const serializeTagsForStorage = (tags) => {
+  if (Array.isArray(tags)) {
+    return JSON.stringify(tags);
+  }
+
+  if (typeof tags === 'string') {
+    return tags;
+  }
+
+  return '[]';
+};
+
 const updateTodo = async (db, userId, todoId, patch) => {
   const existingTodo = await db.findTodoById(userId, todoId);
 
@@ -113,8 +125,8 @@ const updateTodo = async (db, userId, todoId, patch) => {
     priority: patch.priority === undefined ? existingTodo.priority : String(patch.priority || 'normal'),
     tags:
       patch.tags === undefined
-        ? existingTodo.tags
-        : JSON.stringify(Array.isArray(patch.tags) ? patch.tags : [])
+        ? serializeTagsForStorage(existingTodo.tags)
+        : serializeTagsForStorage(patch.tags)
   };
 
   if (!nextTodo.text) {
