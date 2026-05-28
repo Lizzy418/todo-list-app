@@ -48,6 +48,14 @@ export const getCurrentUser = async () => {
   }
 };
 
-export const logout = () => {
+export const logout = async () => {
+  try {
+    if (getAuthToken()) {
+      await apiRequest('/api/auth/logout', { method: 'POST' });
+    }
+  } catch {
+    // 서버 로그아웃 기록 실패와 관계없이 클라이언트 세션은 정리합니다.
+  }
+
   clearAuthToken();
 };

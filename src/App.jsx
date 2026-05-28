@@ -38,8 +38,8 @@ export default function App() {
 
   const handleSignUp = (credentials) => register(credentials);
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     setCurrentUser(null);
   };
 
