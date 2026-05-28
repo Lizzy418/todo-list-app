@@ -86,6 +86,19 @@ const createApp = ({ databaseFile, jwtSecret = process.env.JWT_SECRET || 'dev-se
     return res.status(result.status).end();
   }));
 
+  if (process.env.NODE_ENV === 'production') {
+    const distPath = resolve(process.cwd(), 'dist');
+    app.use(express.static(distPath));
+    app.use((req, res, next) => {
+      if (req.path.startsWith('/api/')) {
+        next();
+        return;
+      }
+
+      res.sendFile(resolve(distPath, 'index.html'));
+    });
+  }
+
   app.use((error, req, res, next) => {
     if (res.headersSent) {
       next(error);
@@ -94,14 +107,6 @@ const createApp = ({ databaseFile, jwtSecret = process.env.JWT_SECRET || 'dev-se
 
     res.status(500).json({ error: '서버 오류가 발생했습니다.' });
   });
-
-  if (process.env.NODE_ENV === 'production') {
-    const distPath = resolve(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(resolve(distPath, 'index.html'));
-    });
-  }
 
   return app;
 };
