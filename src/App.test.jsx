@@ -153,6 +153,20 @@ describe('App auth flow', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('비밀번호 확인이 일치하지 않습니다.');
   });
 
+  it('회원가입 이메일 형식을 검증한다.', async () => {
+    const user = setupUser();
+    await renderApp();
+
+    await user.click(screen.getByRole('button', { name: '회원가입' }));
+    await user.type(screen.getByLabelText('이메일'), 'invalid-email');
+    await user.type(screen.getByLabelText('비밀번호'), 'password123');
+    await user.type(screen.getByLabelText('비밀번호 확인'), 'password123');
+    await user.click(screen.getByRole('button', { name: '회원가입' }));
+
+    expect(screen.getByRole('alert')).toHaveTextContent('올바른 이메일 형식을 입력하세요.');
+    expect(screen.queryByText('회원가입이 완료되었습니다.')).not.toBeInTheDocument();
+  });
+
   it('로그인 성공 시 Todo 화면으로 이동한다.', async () => {
     const user = setupUser();
     await renderApp();

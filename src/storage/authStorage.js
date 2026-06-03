@@ -3,6 +3,8 @@ export const AUTH_USERS_KEY = 'todo-list.auth.users.v1';
 export const AUTH_SESSION_KEY = 'todo-list.auth.session.v1';
 
 const normalizeEmail = (email) => email.trim().toLowerCase();
+const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
+const passwordMinLength = 8;
 
 const loadUsers = () => {
   try {
@@ -37,6 +39,14 @@ export const signUp = ({ email, password, passwordConfirm }) => {
     return { ok: false, error: '이메일과 비밀번호를 입력하세요.' };
   }
 
+  if (!isValidEmail(normalizedEmail)) {
+    return { ok: false, error: '올바른 이메일 형식을 입력하세요.' };
+  }
+
+  if (password.length < passwordMinLength) {
+    return { ok: false, error: `비밀번호는 최소 ${passwordMinLength}자 이상이어야 합니다.` };
+  }
+
   if (password !== passwordConfirm) {
     return { ok: false, error: '비밀번호 확인이 일치하지 않습니다.' };
   }
@@ -60,6 +70,11 @@ export const signUp = ({ email, password, passwordConfirm }) => {
 
 export const login = ({ email, password }) => {
   const normalizedEmail = normalizeEmail(email);
+
+  if (!isValidEmail(normalizedEmail) || password.length < passwordMinLength) {
+    return { ok: false, error: '이메일 또는 비밀번호가 올바르지 않습니다.' };
+  }
+
   const user = loadUsers().find(
     (storedUser) => storedUser.email === normalizedEmail && storedUser.password === password
   );

@@ -4,7 +4,7 @@ const serializeUser = (user) => ({
   id: String(user.id),
   email: user.email
 });
-const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
 const passwordMinLength = 8;
 
 const createToken = (user, jwtSecret) =>

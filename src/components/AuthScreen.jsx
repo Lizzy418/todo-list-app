@@ -11,7 +11,7 @@ export default function AuthScreen({ onLogin, onSignUp }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const isLoginMode = mode === 'login';
-  const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+  const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value.trim());
   const passwordMinLength = 8;
 
   const resetForm = (nextMode) => {
