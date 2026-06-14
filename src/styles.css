@@ -171,6 +171,66 @@ h1 {
   color: #1a6fad;
 }
 
+.todo-agent {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 18px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid #d8e9f8;
+}
+
+.todo-agent-form {
+  display: grid;
+  grid-template-columns: 1fr 44px;
+  gap: 10px;
+}
+
+.todo-agent-form input {
+  min-width: 0;
+  height: 44px;
+  padding: 0 14px;
+  border: 1px solid #bfd7ee;
+  border-radius: 6px;
+  color: #111827;
+  background: #ffffff;
+}
+
+.todo-agent-form input:focus {
+  border-color: #2388d1;
+  outline: 3px solid rgba(35, 136, 209, 0.18);
+}
+
+.todo-agent-form button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: #ffffff;
+  background: #365f8f;
+  cursor: pointer;
+}
+
+.todo-agent-form button:hover:not(:disabled) {
+  background: #27486e;
+}
+
+.todo-agent-form button:disabled {
+  background: #9aa6b2;
+  cursor: not-allowed;
+}
+
+.agent-reply {
+  margin: 0;
+  color: #365f8f;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
 .todo-form input,
 .todo-form select {
   min-width: 0;
@@ -596,6 +656,14 @@ h1 {
 
   .todo-form {
     grid-template-columns: 1fr;
+  }
+
+  .todo-agent-form {
+    grid-template-columns: 1fr;
+  }
+
+  .todo-agent-form button {
+    justify-self: end;
   }
 
   .tag-picker {

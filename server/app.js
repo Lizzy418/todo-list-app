@@ -3,6 +3,7 @@ require('dotenv').config({ quiet: true });
 const cors = require('cors');
 const express = require('express');
 const { resolve } = require('node:path');
+const { handleTodoAgentMessage } = require('./agentService');
 const { createAuthMiddleware } = require('./authMiddleware');
 const { createDatabase } = require('./db');
 const { logError, logInfo } = require('./logger');
@@ -110,6 +111,20 @@ const createApp = ({ databaseFile, jwtSecret = process.env.JWT_SECRET || 'dev-se
   app.delete('/api/todos/:id', authRequired, asyncRoute(async (req, res) => {
     const result = await deleteTodo(db, req.user.id, req.params.id);
     return res.status(result.status).end();
+  }));
+
+  app.post('/api/agent/todo', authRequired, asyncRoute(async (req, res) => {
+    const result = await handleTodoAgentMessage(db, req.user.id, req.body?.message);
+
+    if (result.status === 200) {
+      logInfo('agent.todo.success', {
+        userId: req.user.id,
+        action: result.body.action,
+        changed: result.body.changed
+      });
+    }
+
+    return res.status(result.status).json(result.body);
   }));
 
   if (process.env.NODE_ENV === 'production') {

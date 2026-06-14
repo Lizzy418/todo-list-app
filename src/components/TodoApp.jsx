@@ -1,7 +1,8 @@
 // 투두 기능의 상태와 이벤트를 관리하는 컨테이너 컴포넌트입니다.
 // 이후 DB 저장, 로그인 사용자별 목록, 필터 기능은 이 레이어에서 연결하기 좋습니다.
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import ConfirmDialog from './ConfirmDialog.jsx';
+import TodoAgentBox from './TodoAgentBox.jsx';
 import TodoControls from './TodoControls.jsx';
 import TodoForm from './TodoForm.jsx';
 import TodoList from './TodoList.jsx';
@@ -11,7 +12,7 @@ import useTodosStorage from '../hooks/useTodosStorage.js';
 import { priorityRank } from '../utils/todoPriority.js';
 import { normalizeTags } from '../utils/todoTags.js';
 
-export default function TodoApp({ currentUser, storageKey, todoClient, onLogout }) {
+export default function TodoApp({ currentUser, storageKey, todoClient, agentClient, onLogout }) {
   const [localTodos, setLocalTodos] = useTodosStorage(mockTodos, storageKey);
   const [serverTodos, setServerTodos] = useState([]);
   const [isLoadingTodos, setIsLoadingTodos] = useState(Boolean(todoClient));
@@ -25,18 +26,26 @@ export default function TodoApp({ currentUser, storageKey, todoClient, onLogout 
   const [apiError, setApiError] = useState('');
   const [isMutating, setIsMutating] = useState(false);
 
-  useEffect(() => {
+  const loadServerTodos = useCallback(async () => {
     if (!todoClient) {
       return;
     }
 
     setApiError('');
-    todoClient
-      .listTodos()
-      .then(setServerTodos)
-      .catch((error) => setApiError(error.message))
-      .finally(() => setIsLoadingTodos(false));
+    setIsLoadingTodos(true);
+
+    try {
+      setServerTodos(await todoClient.listTodos());
+    } catch (error) {
+      setApiError(error.message);
+    } finally {
+      setIsLoadingTodos(false);
+    }
   }, [todoClient]);
+
+  useEffect(() => {
+    loadServerTodos();
+  }, [loadServerTodos]);
 
   const runTodoRequest = async (request) => {
     setApiError('');
@@ -204,6 +213,9 @@ export default function TodoApp({ currentUser, storageKey, todoClient, onLogout 
       {isLoadingTodos ? <p className="empty-message">할 일을 불러오는 중입니다.</p> : null}
       {isMutating ? <p className="status-message" role="status">요청을 처리하는 중입니다.</p> : null}
       {apiError ? <p className="form-error" role="alert">{apiError}</p> : null}
+      {agentClient ? (
+        <TodoAgentBox agentClient={agentClient} onTodosChanged={loadServerTodos} />
+      ) : null}
       <TodoForm onAddTodo={handleAddTodo} />
       <TodoControls
         searchTerm={searchTerm}

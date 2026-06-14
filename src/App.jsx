@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import AuthScreen from './components/AuthScreen.jsx';
 import TodoApp from './components/TodoApp.jsx';
 import { getCurrentUser, login, logout, register } from './services/authApi.js';
+import { todoAgentApi } from './services/todoAgentApi.js';
 import { todoApi } from './services/todoApi.js';
 
 export default function App() {
@@ -54,6 +55,7 @@ export default function App() {
           key={currentUser.id}
           currentUser={currentUser}
           todoClient={todoApi}
+          agentClient={todoAgentApi}
           onLogout={handleLogout}
         />
       ) : (

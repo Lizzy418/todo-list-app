@@ -1,4 +1,5 @@
 const { createDatabase } = require('./db');
+const { handleTodoAgentMessage } = require('./agentService');
 const {
   createTodo,
   deleteCompletedTodos,
@@ -202,5 +203,83 @@ describe('server API services', () => {
       completed: true,
       tags: ['업무', '공부']
     });
+  });
+
+  it('Todo Agent가 create_todo tool로 기존 Todo 생성 서비스를 호출한다.', async () => {
+    const { db } = createTestContext();
+    const user = (await register(db)).body.user;
+    const openAIClient = vi
+      .fn()
+      .mockResolvedValueOnce({
+        role: 'assistant',
+        tool_calls: [
+          {
+            id: 'call-create',
+            type: 'function',
+            function: {
+              name: 'create_todo',
+              arguments: JSON.stringify({
+                title: '운동하기',
+                dueDate: '',
+                priority: 'normal',
+                tags: []
+              })
+            }
+          }
+        ]
+      })
+      .mockResolvedValueOnce({ role: 'assistant', content: '운동하기를 추가했어요.' });
+
+    const response = await handleTodoAgentMessage(db, user.id, '운동하기 추가해줘', {
+      apiKey: 'test-key',
+      openAIClient
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      action: 'create_todo',
+      changed: true,
+      message: '운동하기를 추가했어요.'
+    });
+    await expect(listTodos(db, user.id)).resolves.toHaveLength(1);
+  });
+
+  it('Todo Agent delete_todo는 여러 항목이 매칭되면 삭제하지 않는다.', async () => {
+    const { db } = createTestContext();
+    const user = (await register(db)).body.user;
+    await createTodo(db, user.id, { title: '독서 10분' });
+    await createTodo(db, user.id, { title: '독서 기록 정리' });
+    const openAIClient = vi
+      .fn()
+      .mockResolvedValueOnce({
+        role: 'assistant',
+        tool_calls: [
+          {
+            id: 'call-delete',
+            type: 'function',
+            function: {
+              name: 'delete_todo',
+              arguments: JSON.stringify({ query: '독서' })
+            }
+          }
+        ]
+      })
+      .mockResolvedValueOnce({
+        role: 'assistant',
+        content: '일치하는 할 일이 2개 있어요. 삭제할 항목을 더 정확히 말해주세요.'
+      });
+
+    const response = await handleTodoAgentMessage(db, user.id, '독서 삭제해줘', {
+      apiKey: 'test-key',
+      openAIClient
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      action: 'delete_todo',
+      changed: false
+    });
+    expect(response.body.candidates).toHaveLength(2);
+    await expect(listTodos(db, user.id)).resolves.toHaveLength(2);
   });
 });
