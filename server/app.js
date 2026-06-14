@@ -119,8 +119,7 @@ const createApp = ({ databaseFile, jwtSecret = process.env.JWT_SECRET || 'dev-se
     if (result.status === 200) {
       logInfo('agent.todo.success', {
         userId: req.user.id,
-        action: result.body.action,
-        changed: result.body.changed
+        action: result.body.action
       });
     }
 

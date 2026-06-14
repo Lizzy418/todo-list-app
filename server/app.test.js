@@ -1,5 +1,5 @@
 const { createDatabase } = require('./db');
-const { handleTodoAgentMessage } = require('./agentService');
+const { handleTodoAgentMessage, parseIntent } = require('./agentService');
 const {
   createTodo,
   deleteCompletedTodos,
@@ -205,84 +205,16 @@ describe('server API services', () => {
     });
   });
 
-  it('Todo Agent가 create_todo tool로 기존 Todo 생성 서비스를 호출한다.', async () => {
-    const { db } = createTestContext();
-    const user = (await register(db)).body.user;
-    const openAIClient = vi
-      .fn()
-      .mockResolvedValueOnce({
-        role: 'assistant',
-        tool_calls: [
-          {
-            id: 'call-create',
-            type: 'function',
-            function: {
-              name: 'create_todo',
-              arguments: JSON.stringify({
-                title: '운동하기',
-                dueDate: '',
-                priority: 'normal',
-                tags: []
-              })
-            }
-          }
-        ]
-      })
-      .mockResolvedValueOnce({ role: 'assistant', content: '운동하기를 추가했어요.' });
-
-    const response = await handleTodoAgentMessage(db, user.id, '운동하기 추가해줘', {
-      agentMode: 'openai',
-      apiKey: 'test-key',
-      openAIClient
+  it('Mock Todo Agent가 날짜 단어와 생성 의도를 파싱한다.', () => {
+    const intent = parseIntent('내일 운동하기 추가해줘', {
+      today: new Date('2026-06-14T00:00:00.000Z')
     });
 
-    expect(response.status).toBe(200);
-    expect(response.body).toMatchObject({
+    expect(intent).toMatchObject({
       action: 'create_todo',
-      changed: true,
-      message: '운동하기를 추가했어요.'
+      title: '운동하기',
+      dueDate: '2026-06-15'
     });
-    await expect(listTodos(db, user.id)).resolves.toHaveLength(1);
-  });
-
-  it('Todo Agent delete_todo는 여러 항목이 매칭되면 삭제하지 않는다.', async () => {
-    const { db } = createTestContext();
-    const user = (await register(db)).body.user;
-    await createTodo(db, user.id, { title: '독서 10분' });
-    await createTodo(db, user.id, { title: '독서 기록 정리' });
-    const openAIClient = vi
-      .fn()
-      .mockResolvedValueOnce({
-        role: 'assistant',
-        tool_calls: [
-          {
-            id: 'call-delete',
-            type: 'function',
-            function: {
-              name: 'delete_todo',
-              arguments: JSON.stringify({ query: '독서' })
-            }
-          }
-        ]
-      })
-      .mockResolvedValueOnce({
-        role: 'assistant',
-        content: '일치하는 할 일이 2개 있어요. 삭제할 항목을 더 정확히 말해주세요.'
-      });
-
-    const response = await handleTodoAgentMessage(db, user.id, '독서 삭제해줘', {
-      agentMode: 'openai',
-      apiKey: 'test-key',
-      openAIClient
-    });
-
-    expect(response.status).toBe(200);
-    expect(response.body).toMatchObject({
-      action: 'delete_todo',
-      changed: false
-    });
-    expect(response.body.candidates).toHaveLength(2);
-    await expect(listTodos(db, user.id)).resolves.toHaveLength(2);
   });
 
   it('Mock Todo Agent가 오늘 추가 요청을 API 없이 처리한다.', async () => {
@@ -294,9 +226,9 @@ describe('server API services', () => {
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({
       action: 'create_todo',
-      changed: true,
-      mode: 'mock'
+      message: '운동하기를 추가했습니다.'
     });
+    expect(response.body.todos).toEqual([]);
     const todos = await listTodos(db, user.id);
     expect(todos).toHaveLength(1);
     expect(todos[0]).toMatchObject({
@@ -305,24 +237,75 @@ describe('server API services', () => {
     });
   });
 
-  it('OpenAI 요청 실패 시 mock agent로 대체 처리한다.', async () => {
+  it('Mock Todo Agent가 키워드와 완료 필터로 조회한다.', async () => {
     const { db } = createTestContext();
     const user = (await register(db)).body.user;
-    const openAIClient = vi.fn().mockRejectedValue(new Error('quota exceeded'));
+    const completedTodo = (await createTodo(db, user.id, { title: '독서 10분' })).body.todo;
+    await createTodo(db, user.id, { title: '운동하기' });
+    await updateTodo(db, user.id, completedTodo.id, { completed: true });
 
-    const response = await handleTodoAgentMessage(db, user.id, '오늘 운동하기 추가해줘', {
-      agentMode: 'openai',
-      apiKey: 'test-key',
-      openAIClient
-    });
+    const response = await handleTodoAgentMessage(db, user.id, '완료 독서 목록 보여줘');
 
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({
-      action: 'create_todo',
-      changed: true,
-      mode: 'mock',
-      openAIError: 'quota exceeded'
+      action: 'list_todos',
+      todo: null
     });
-    await expect(listTodos(db, user.id)).resolves.toHaveLength(1);
+    expect(response.body.todos).toHaveLength(1);
+    expect(response.body.todos[0]).toMatchObject({ title: '독서 10분', completed: true });
+  });
+
+  it('Mock Todo Agent delete_todo는 여러 항목이 매칭되면 삭제하지 않고 후보를 반환한다.', async () => {
+    const { db } = createTestContext();
+    const user = (await register(db)).body.user;
+    await createTodo(db, user.id, { title: '독서 10분' });
+    await createTodo(db, user.id, { title: '독서 기록 정리' });
+
+    const response = await handleTodoAgentMessage(db, user.id, '독서 삭제해줘');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      action: 'clarify',
+      todo: null
+    });
+    expect(response.body.todos).toHaveLength(2);
+    await expect(listTodos(db, user.id)).resolves.toHaveLength(2);
+  });
+
+  it('Mock Todo Agent delete_todo는 1개 매칭이면 삭제한다.', async () => {
+    const { db } = createTestContext();
+    const user = (await register(db)).body.user;
+    await createTodo(db, user.id, { title: '물 마시기' });
+
+    const response = await handleTodoAgentMessage(db, user.id, '물 마시기 삭제해줘');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      action: 'delete_todo',
+      message: '물 마시기를 삭제했습니다.'
+    });
+    expect(response.body.todo).toMatchObject({ title: '물 마시기' });
+    expect(response.body.todos).toEqual([]);
+    await expect(listTodos(db, user.id)).resolves.toHaveLength(0);
+  });
+
+  it('Mock Todo Agent delete_todo는 날짜 단어가 있으면 해당 날짜만 삭제 후보로 본다.', async () => {
+    const { db } = createTestContext();
+    const user = (await register(db)).body.user;
+    const today = new Date().toISOString().slice(0, 10);
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+    await createTodo(db, user.id, { title: '운동하기', dueDate: today });
+    await createTodo(db, user.id, { title: '운동하기', dueDate: tomorrow });
+
+    const response = await handleTodoAgentMessage(db, user.id, '오늘 운동하기 삭제해줘');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      action: 'delete_todo'
+    });
+    const todos = await listTodos(db, user.id);
+    expect(todos).toHaveLength(1);
+    expect(todos[0]).toMatchObject({ title: '운동하기', dueDate: tomorrow });
   });
 });

@@ -25,7 +25,7 @@ export default function TodoAgentBox({ agentClient, onTodosChanged }) {
       const result = await agentClient.run(trimmedMessage);
       setReply(result.message || '요청을 처리했어요.');
 
-      if (result.changed) {
+      if (result.action === 'create_todo' || result.action === 'delete_todo') {
         await onTodosChanged();
       }
 
