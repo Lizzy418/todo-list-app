@@ -5,7 +5,7 @@ const {
 } = require('./services');
 
 const CREATE_WORDS = ['추가', '등록', '넣어', '만들어'];
-const LIST_WORDS = ['보여', '조회', '목록', '뭐 있어', '뭐있어', '알려'];
+const LIST_WORDS = ['보여', '조회', '목록', '뭐 있어', '뭐있어', '알려', '찾아'];
 const DELETE_WORDS = ['삭제', '지워', '제거'];
 const DATE_WORDS = ['오늘', '내일', '어제', '모레'];
 const FILLER_WORDS = [
@@ -27,6 +27,44 @@ const getDateStringWithOffset = (offsetDays, today = new Date()) => {
   return date.toISOString().slice(0, 10);
 };
 
+const formatDateParts = (year, month, day) => {
+  const normalizedYear = String(year).padStart(4, '0');
+  const normalizedMonth = String(month).padStart(2, '0');
+  const normalizedDay = String(day).padStart(2, '0');
+
+  return `${normalizedYear}-${normalizedMonth}-${normalizedDay}`;
+};
+
+const parseExplicitDate = (message, today = new Date()) => {
+  const isoDateMatch = message.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/);
+
+  if (isoDateMatch) {
+    return formatDateParts(isoDateMatch[1], isoDateMatch[2], isoDateMatch[3]);
+  }
+
+  const slashDateMatch = message.match(/\b(?:(\d{4})[./])?(\d{1,2})[./](\d{1,2})(?:일)?\b/);
+
+  if (slashDateMatch) {
+    return formatDateParts(
+      slashDateMatch[1] || today.getFullYear(),
+      slashDateMatch[2],
+      slashDateMatch[3]
+    );
+  }
+
+  const koreanDateMatch = message.match(/(?:(\d{4})년\s*)?(\d{1,2})월\s*(\d{1,2})일?/);
+
+  if (koreanDateMatch) {
+    return formatDateParts(
+      koreanDateMatch[1] || today.getFullYear(),
+      koreanDateMatch[2],
+      koreanDateMatch[3]
+    );
+  }
+
+  return '';
+};
+
 const parseDueDate = (message, today = new Date()) => {
   if (message.includes('어제')) {
     return getDateStringWithOffset(-1, today);
@@ -44,7 +82,7 @@ const parseDueDate = (message, today = new Date()) => {
     return getDateStringWithOffset(2, today);
   }
 
-  return '';
+  return parseExplicitDate(message, today);
 };
 
 const normalizeSearchText = (value) => String(value || '').trim().toLowerCase();
@@ -63,8 +101,17 @@ const removeWords = (message, words) => {
   return result.replace(/\s+/g, ' ').trim();
 };
 
+const removeDateExpressions = (message) =>
+  message
+    .replace(/\b\d{4}-\d{1,2}-\d{1,2}\b/g, ' ')
+    .replace(/\b(?:\d{4}[./])?\d{1,2}[./]\d{1,2}(?:일)?\b/g, ' ')
+    .replace(/(?:\d{4}년\s*)?\d{1,2}월\s*\d{1,2}일?/g, ' ')
+    .replace(/\s*(에|까지)\s*/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
 const buildQueryText = (message, actionWords) =>
-  removeWords(message, [...actionWords, ...DATE_WORDS, ...FILLER_WORDS]);
+  removeDateExpressions(removeWords(message, [...actionWords, ...DATE_WORDS, ...FILLER_WORDS]));
 
 const parseListFilter = (message) => {
   if (message.includes('완료')) {
@@ -79,7 +126,9 @@ const parseListFilter = (message) => {
 };
 
 const parseListSearchTerm = (message) =>
-  removeWords(message, [...LIST_WORDS, ...DATE_WORDS, ...FILLER_WORDS, '완료', '남은', '미완료']);
+  removeDateExpressions(
+    removeWords(message, [...LIST_WORDS, ...DATE_WORDS, ...FILLER_WORDS, '완료', '남은', '미완료'])
+  );
 
 const parseIntent = (message, { today = new Date() } = {}) => {
   const normalizedMessage = String(message || '').trim();

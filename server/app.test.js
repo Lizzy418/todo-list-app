@@ -217,6 +217,18 @@ describe('server API services', () => {
     });
   });
 
+  it('Mock Todo Agent가 직접 입력한 날짜와 생성 의도를 파싱한다.', () => {
+    const intent = parseIntent('6월 18일에 운동 추가해줘', {
+      today: new Date('2026-06-14T00:00:00.000Z')
+    });
+
+    expect(intent).toMatchObject({
+      action: 'create_todo',
+      title: '운동',
+      dueDate: '2026-06-18'
+    });
+  });
+
   it('Mock Todo Agent가 오늘 추가 요청을 API 없이 처리한다.', async () => {
     const { db } = createTestContext();
     const user = (await register(db)).body.user;
@@ -253,6 +265,26 @@ describe('server API services', () => {
     });
     expect(response.body.todos).toHaveLength(1);
     expect(response.body.todos[0]).toMatchObject({ title: '독서 10분', completed: true });
+  });
+
+  it('Mock Todo Agent가 찾아 요청을 조회로 판단하고 직접 날짜를 필터링한다.', async () => {
+    const { db } = createTestContext();
+    const user = (await register(db)).body.user;
+    await createTodo(db, user.id, { title: '운동하기', dueDate: '2026-06-18' });
+    await createTodo(db, user.id, { title: '운동하기', dueDate: '2026-06-19' });
+
+    const response = await handleTodoAgentMessage(db, user.id, '2026-06-18 운동 찾아줘');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      action: 'list_todos',
+      todo: null
+    });
+    expect(response.body.todos).toHaveLength(1);
+    expect(response.body.todos[0]).toMatchObject({
+      title: '운동하기',
+      dueDate: '2026-06-18'
+    });
   });
 
   it('Mock Todo Agent delete_todo는 여러 항목이 매칭되면 삭제하지 않고 후보를 반환한다.', async () => {
@@ -307,5 +339,23 @@ describe('server API services', () => {
     const todos = await listTodos(db, user.id);
     expect(todos).toHaveLength(1);
     expect(todos[0]).toMatchObject({ title: '운동하기', dueDate: tomorrow });
+  });
+
+  it('Mock Todo Agent delete_todo는 직접 날짜가 있으면 해당 날짜만 삭제한다.', async () => {
+    const { db } = createTestContext();
+    const user = (await register(db)).body.user;
+
+    await createTodo(db, user.id, { title: '운동하기', dueDate: '2026-06-18' });
+    await createTodo(db, user.id, { title: '운동하기', dueDate: '2026-06-19' });
+
+    const response = await handleTodoAgentMessage(db, user.id, '6/18 운동 삭제해줘');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      action: 'delete_todo'
+    });
+    const todos = await listTodos(db, user.id);
+    expect(todos).toHaveLength(1);
+    expect(todos[0]).toMatchObject({ title: '운동하기', dueDate: '2026-06-19' });
   });
 });
