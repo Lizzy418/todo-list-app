@@ -29,6 +29,15 @@ const sqliteSchema = `
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS refresh_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
 `;
 
 const postgresSchema = `
@@ -49,6 +58,14 @@ const postgresSchema = `
     tags JSONB NOT NULL DEFAULT '[]'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS refresh_tokens (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL UNIQUE,
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
 `;
 
@@ -91,6 +108,37 @@ const createSqliteClient = (databaseFile = process.env.DATABASE_FILE || DEFAULT_
       const user = db.prepare('SELECT id, email FROM users WHERE id = ?').get(result.lastInsertRowid);
       logInfo('db.insert.users', { dialect: 'sqlite', userId: String(user.id), email: user.email });
       return user;
+    },
+    async createRefreshToken(userId, tokenHash, expiresAt) {
+      db.prepare(
+        `INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
+         VALUES (?, ?, ?)`
+      ).run(userId, tokenHash, expiresAt);
+      logInfo('db.insert.refresh_tokens', { dialect: 'sqlite', userId: String(userId) });
+    },
+    async findRefreshToken(tokenHash) {
+      return db
+        .prepare(
+          `SELECT refresh_tokens.*, users.email
+           FROM refresh_tokens
+           JOIN users ON users.id = refresh_tokens.user_id
+           WHERE token_hash = ?`
+        )
+        .get(tokenHash) || null;
+    },
+    async deleteRefreshToken(tokenHash) {
+      const result = db.prepare('DELETE FROM refresh_tokens WHERE token_hash = ?').run(tokenHash);
+      logInfo('db.delete.refresh_tokens', {
+        dialect: 'sqlite',
+        deletedCount: result.changes
+      });
+    },
+    async deleteExpiredRefreshTokens(now) {
+      const result = db.prepare('DELETE FROM refresh_tokens WHERE expires_at <= ?').run(now);
+      logInfo('db.delete.refresh_tokens.expired', {
+        dialect: 'sqlite',
+        deletedCount: result.changes
+      });
     },
     async listTodos(userId) {
       return db
@@ -198,6 +246,40 @@ const createPostgresClient = (databaseUrl = process.env.DATABASE_URL) => {
         email: result.rows[0].email
       });
       return result.rows[0];
+    },
+    async createRefreshToken(userId, tokenHash, expiresAt) {
+      await pool.query(
+        `INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
+         VALUES ($1, $2, $3)`,
+        [userId, tokenHash, expiresAt]
+      );
+      logInfo('db.insert.refresh_tokens', { dialect: 'postgres', userId: String(userId) });
+    },
+    async findRefreshToken(tokenHash) {
+      const result = await pool.query(
+        `SELECT refresh_tokens.*, users.email
+         FROM refresh_tokens
+         JOIN users ON users.id = refresh_tokens.user_id
+         WHERE token_hash = $1`,
+        [tokenHash]
+      );
+      return result.rows[0] || null;
+    },
+    async deleteRefreshToken(tokenHash) {
+      const result = await pool.query('DELETE FROM refresh_tokens WHERE token_hash = $1', [
+        tokenHash
+      ]);
+      logInfo('db.delete.refresh_tokens', {
+        dialect: 'postgres',
+        deletedCount: result.rowCount
+      });
+    },
+    async deleteExpiredRefreshTokens(now) {
+      const result = await pool.query('DELETE FROM refresh_tokens WHERE expires_at <= $1', [now]);
+      logInfo('db.delete.refresh_tokens.expired', {
+        dialect: 'postgres',
+        deletedCount: result.rowCount
+      });
     },
     async listTodos(userId) {
       const result = await pool.query(

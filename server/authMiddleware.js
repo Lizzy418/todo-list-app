@@ -10,6 +10,10 @@ const createAuthMiddleware = (db, jwtSecret) => async (req, res, next) => {
 
   try {
     const payload = jwt.verify(token, jwtSecret);
+    if (payload.type !== 'access') {
+      return res.status(401).json({ error: '인증이 필요합니다.' });
+    }
+
     const user = await db.findUserById(payload.sub);
 
     if (!user) {

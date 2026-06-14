@@ -7,7 +7,9 @@ const {
   getUserFromToken,
   listTodos,
   loginUser,
+  logoutUser,
   registerUser,
+  refreshUserToken,
   updateTodo
 } = require('./services');
 
@@ -69,10 +71,42 @@ describe('server API services', () => {
 
     expect(response.status).toBe(200);
     expect(response.body.token).toEqual(expect.any(String));
+    expect(response.body.refreshToken).toEqual(expect.any(String));
     expect(response.body.user).toMatchObject({ email: 'user@example.com' });
     await expect(getUserFromToken(db, response.body.token, jwtSecret)).resolves.toMatchObject({
       email: 'user@example.com'
     });
+  });
+
+  it('refresh token으로 access token을 재발급하고 refresh token을 회전한다.', async () => {
+    const { db, jwtSecret } = createTestContext();
+
+    await register(db);
+    const loginResponse = await login(db, jwtSecret);
+    const refreshResponse = await refreshUserToken(db, loginResponse.body.refreshToken, jwtSecret);
+
+    expect(refreshResponse.status).toBe(200);
+    expect(refreshResponse.body.token).toEqual(expect.any(String));
+    expect(refreshResponse.body.refreshToken).toEqual(expect.any(String));
+    expect(refreshResponse.body.refreshToken).not.toBe(loginResponse.body.refreshToken);
+    expect(refreshResponse.body.user).toMatchObject({ email: 'user@example.com' });
+    await expect(
+      refreshUserToken(db, loginResponse.body.refreshToken, jwtSecret)
+    ).resolves.toMatchObject({ status: 401 });
+  });
+
+  it('로그아웃하면 refresh token을 폐기한다.', async () => {
+    const { db, jwtSecret } = createTestContext();
+
+    await register(db);
+    const loginResponse = await login(db, jwtSecret);
+
+    await expect(logoutUser(db, loginResponse.body.refreshToken)).resolves.toMatchObject({
+      status: 204
+    });
+    await expect(
+      refreshUserToken(db, loginResponse.body.refreshToken, jwtSecret)
+    ).resolves.toMatchObject({ status: 401 });
   });
 
   it('로그인 실패', async () => {

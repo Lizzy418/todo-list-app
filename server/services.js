@@ -1,3 +1,4 @@
+const crypto = require('node:crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const serializeUser = (user) => ({
@@ -7,12 +8,31 @@ const serializeUser = (user) => ({
 const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
 const passwordMinLength = 8;
 
-const createToken = (user, jwtSecret) =>
+const refreshTokenDays = Number(process.env.REFRESH_TOKEN_DAYS || 30);
+
+const hashRefreshToken = (token) => crypto.createHash('sha256').update(token).digest('hex');
+
+const createAccessToken = (user, jwtSecret) =>
   jwt.sign(
-    { sub: user.id, email: user.email },
+    { sub: user.id, email: user.email, type: 'access' },
     jwtSecret,
-    { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+    { expiresIn: process.env.JWT_EXPIRES_IN || '15m' }
   );
+
+const createRefreshToken = async (db, user) => {
+  const refreshToken = crypto.randomBytes(48).toString('base64url');
+  const expiresAt = new Date(Date.now() + refreshTokenDays * 24 * 60 * 60 * 1000).toISOString();
+
+  await db.createRefreshToken(user.id, hashRefreshToken(refreshToken), expiresAt);
+
+  return refreshToken;
+};
+
+const createAuthSession = async (db, user, jwtSecret) => ({
+  token: createAccessToken(user, jwtSecret),
+  refreshToken: await createRefreshToken(db, user),
+  user: serializeUser(user)
+});
 
 const registerUser = async (db, { email, password }) => {
   const normalizedEmail = String(email || '').trim().toLowerCase();
@@ -58,11 +78,53 @@ const loginUser = async (db, { email, password }, jwtSecret) => {
 
   return {
     status: 200,
-    body: {
-      token: createToken(user, jwtSecret),
-      user: serializeUser(user)
-    }
+    body: await createAuthSession(db, user, jwtSecret)
   };
+};
+
+const refreshUserToken = async (db, refreshToken, jwtSecret) => {
+  const normalizedRefreshToken = String(refreshToken || '').trim();
+
+  if (!normalizedRefreshToken) {
+    return { status: 401, body: { error: '로그인이 필요합니다.' } };
+  }
+
+  const tokenHash = hashRefreshToken(normalizedRefreshToken);
+  const storedToken = await db.findRefreshToken(tokenHash);
+
+  if (!storedToken) {
+    return { status: 401, body: { error: '로그인이 필요합니다.' } };
+  }
+
+  const expiresAt = new Date(storedToken.expires_at).getTime();
+
+  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+    await db.deleteRefreshToken(tokenHash);
+    return { status: 401, body: { error: '로그인이 만료되었습니다. 다시 로그인하세요.' } };
+  }
+
+  const user = {
+    id: storedToken.user_id,
+    email: storedToken.email
+  };
+
+  await db.deleteRefreshToken(tokenHash);
+  await db.deleteExpiredRefreshTokens(new Date().toISOString());
+
+  return {
+    status: 200,
+    body: await createAuthSession(db, user, jwtSecret)
+  };
+};
+
+const logoutUser = async (db, refreshToken) => {
+  const normalizedRefreshToken = String(refreshToken || '').trim();
+
+  if (normalizedRefreshToken) {
+    await db.deleteRefreshToken(hashRefreshToken(normalizedRefreshToken));
+  }
+
+  return { status: 204 };
 };
 
 const getUserFromToken = async (db, token, jwtSecret) => {
@@ -72,6 +134,9 @@ const getUserFromToken = async (db, token, jwtSecret) => {
 
   try {
     const payload = jwt.verify(token, jwtSecret);
+    if (payload.type !== 'access') {
+      return null;
+    }
     const user = await db.findUserById(payload.sub);
     return user ? serializeUser(user) : null;
   } catch {
@@ -154,6 +219,8 @@ const deleteCompletedTodos = async (db, userId) => {
 module.exports = {
   registerUser,
   loginUser,
+  logoutUser,
+  refreshUserToken,
   getUserFromToken,
   listTodos,
   createTodo,

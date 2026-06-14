@@ -13,6 +13,8 @@ const {
   deleteTodo,
   listTodos,
   loginUser,
+  logoutUser,
+  refreshUserToken,
   registerUser,
   updateTodo
 } = require('./services');
@@ -77,17 +79,28 @@ const createApp = ({ databaseFile, jwtSecret = process.env.JWT_SECRET || 'dev-se
     return res.status(result.status).json(result.body);
   }));
 
+  app.post('/api/auth/refresh', asyncRoute(async (req, res) => {
+    const result = await refreshUserToken(db, req.body?.refreshToken, jwtSecret);
+
+    if (result.status === 200) {
+      logInfo('auth.refresh.success', {
+        userId: result.body.user.id,
+        email: result.body.user.email
+      });
+    }
+
+    return res.status(result.status).json(result.body);
+  }));
+
   app.get('/api/auth/me', authRequired, (req, res) => {
     return res.json({ user: serializeUser(req.user) });
   });
 
-  app.post('/api/auth/logout', authRequired, (req, res) => {
-    logInfo('auth.logout', {
-      userId: req.user.id,
-      email: req.user.email
-    });
+  app.post('/api/auth/logout', asyncRoute(async (req, res) => {
+    await logoutUser(db, req.body?.refreshToken);
+    logInfo('auth.logout');
     return res.status(204).end();
-  });
+  }));
 
   app.get('/api/todos', authRequired, asyncRoute(async (req, res) => {
     return res.json({ todos: await listTodos(db, req.user.id) });

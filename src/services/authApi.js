@@ -1,5 +1,11 @@
 // 인증 API 어댑터입니다. UI는 이 파일만 알면 되도록 서버 호출을 캡슐화합니다.
-import { apiRequest, clearAuthToken, getAuthToken, setAuthToken } from './apiClient.js';
+import {
+  apiRequest,
+  clearAuthToken,
+  getAuthToken,
+  getRefreshToken,
+  setAuthTokens
+} from './apiClient.js';
 
 const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim());
 const passwordMinLength = 8;
@@ -37,7 +43,10 @@ export const login = async ({ email, password }) => {
       token: ''
     });
 
-    setAuthToken(data.token);
+    setAuthTokens({
+      token: data.token,
+      refreshToken: data.refreshToken
+    });
 
     return { ok: true, user: data.user };
   } catch (error) {
@@ -46,7 +55,7 @@ export const login = async ({ email, password }) => {
 };
 
 export const getCurrentUser = async () => {
-  if (!getAuthToken()) {
+  if (!getAuthToken() && !getRefreshToken()) {
     return null;
   }
 
@@ -60,9 +69,16 @@ export const getCurrentUser = async () => {
 };
 
 export const logout = async () => {
+  const refreshToken = getRefreshToken();
+
   try {
-    if (getAuthToken()) {
-      await apiRequest('/api/auth/logout', { method: 'POST' });
+    if (refreshToken) {
+      await apiRequest('/api/auth/logout', {
+        method: 'POST',
+        body: { refreshToken },
+        token: '',
+        retryOnUnauthorized: false
+      });
     }
   } catch {
     // 서버 로그아웃 기록 실패와 관계없이 클라이언트 세션은 정리합니다.
