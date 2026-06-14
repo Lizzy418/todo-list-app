@@ -3,8 +3,17 @@ const {
   deleteTodo,
   listTodos
 } = require('./services');
+const { logError } = require('./logger');
 
 const OPENAI_CHAT_COMPLETIONS_URL = 'https://api.openai.com/v1/chat/completions';
+
+class OpenAIRequestError extends Error {
+  constructor(message, status) {
+    super(message);
+    this.name = 'OpenAIRequestError';
+    this.status = status;
+  }
+}
 
 const todoTools = [
   {
@@ -148,7 +157,10 @@ const callOpenAI = async ({ apiKey, model, messages, tools, toolChoice = 'auto' 
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new Error(data.error?.message || 'OpenAI 요청을 처리하지 못했습니다.');
+    throw new OpenAIRequestError(
+      data.error?.message || 'OpenAI 요청을 처리하지 못했습니다.',
+      response.status
+    );
   }
 
   return data.choices?.[0]?.message || {};
@@ -280,12 +292,32 @@ const handleTodoAgentMessage = async (
     { role: 'user', content: normalizedMessage }
   ];
 
-  const assistantMessage = await openAIClient({
-    apiKey,
-    model,
-    messages,
-    tools: todoTools
-  });
+  let assistantMessage;
+
+  try {
+    assistantMessage = await openAIClient({
+      apiKey,
+      model,
+      messages,
+      tools: todoTools
+    });
+  } catch (error) {
+    logError('agent.openai.failed', {
+      userId: String(userId),
+      model,
+      status: error.status,
+      message: error.message
+    });
+
+    return {
+      status: 502,
+      body: {
+        error: `OpenAI 요청 실패: ${error.message}`,
+        action: 'none',
+        changed: false
+      }
+    };
+  }
   const toolCall = assistantMessage.tool_calls?.[0];
 
   if (!toolCall) {
