@@ -138,6 +138,128 @@ const parseToolArguments = (toolCall) => {
   }
 };
 
+const createToolCall = (name, args) => ({
+  id: `mock-${name}`,
+  type: 'function',
+  function: {
+    name,
+    arguments: JSON.stringify(args)
+  }
+});
+
+const stripCommandWords = (message, words) => {
+  let title = message;
+
+  words.forEach((word) => {
+    title = title.replaceAll(word, ' ');
+  });
+
+  return title.replace(/\s+/g, ' ').trim();
+};
+
+const parseDueDate = (message) => {
+  if (message.includes('오늘')) {
+    return getTodayDateString();
+  }
+
+  return '';
+};
+
+const inferPriority = (message) => {
+  if (message.includes('중요') || message.includes('급해') || message.includes('높')) {
+    return 'high';
+  }
+
+  if (message.includes('낮')) {
+    return 'low';
+  }
+
+  return 'normal';
+};
+
+const createMockToolCall = (message) => {
+  const normalizedMessage = message.trim();
+
+  if (/삭제|지워|없애|제거/.test(normalizedMessage)) {
+    const query = stripCommandWords(normalizedMessage, [
+      '삭제해줘',
+      '삭제',
+      '지워줘',
+      '지워',
+      '없애줘',
+      '없애',
+      '제거해줘',
+      '제거',
+      '해줘'
+    ]);
+
+    return createToolCall('delete_todo', { query });
+  }
+
+  if (/보여|조회|목록|뭐 있|알려/.test(normalizedMessage)) {
+    const filter = normalizedMessage.includes('오늘')
+      ? 'today'
+      : normalizedMessage.includes('완료')
+        ? 'completed'
+        : normalizedMessage.includes('안 된') || normalizedMessage.includes('미완료')
+          ? 'active'
+          : 'all';
+
+    return createToolCall('list_todos', { filter, searchTerm: '' });
+  }
+
+  if (/추가|등록|넣어|만들/.test(normalizedMessage)) {
+    const title = stripCommandWords(normalizedMessage, [
+      '오늘',
+      '내일',
+      '추가해줘',
+      '추가',
+      '등록해줘',
+      '등록',
+      '넣어줘',
+      '넣어',
+      '만들어줘',
+      '만들어',
+      '해줘'
+    ]);
+
+    return createToolCall('create_todo', {
+      title,
+      dueDate: parseDueDate(normalizedMessage),
+      priority: inferPriority(normalizedMessage),
+      tags: []
+    });
+  }
+
+  return null;
+};
+
+const runMockAgent = async (db, userId, message) => {
+  const toolCall = createMockToolCall(message);
+
+  if (!toolCall) {
+    return {
+      status: 200,
+      body: {
+        message: '할 일 추가, 조회, 삭제만 도와드릴 수 있어요.',
+        action: 'none',
+        changed: false
+      }
+    };
+  }
+
+  const toolResult = await executeTodoTool(db, userId, toolCall);
+
+  return {
+    status: 200,
+    body: {
+      ...toolResult,
+      message: createFallbackReply(toolResult),
+      mode: 'mock'
+    }
+  };
+};
+
 const callOpenAI = async ({ apiKey, model, messages, tools, toolChoice = 'auto' }) => {
   const response = await fetch(OPENAI_CHAT_COMPLETIONS_URL, {
     method: 'POST',
@@ -264,6 +386,7 @@ const handleTodoAgentMessage = async (
   message,
   {
     apiKey = process.env.OPENAI_API_KEY,
+    agentMode = process.env.TODO_AGENT_MODE || 'mock',
     model = process.env.OPENAI_MODEL || 'gpt-5.5',
     openAIClient = callOpenAI
   } = {}
@@ -272,6 +395,10 @@ const handleTodoAgentMessage = async (
 
   if (!normalizedMessage) {
     return { status: 400, body: { error: '요청 내용을 입력하세요.' } };
+  }
+
+  if (agentMode !== 'openai') {
+    return runMockAgent(db, userId, normalizedMessage);
   }
 
   if (!apiKey) {

@@ -231,6 +231,7 @@ describe('server API services', () => {
       .mockResolvedValueOnce({ role: 'assistant', content: '운동하기를 추가했어요.' });
 
     const response = await handleTodoAgentMessage(db, user.id, '운동하기 추가해줘', {
+      agentMode: 'openai',
       apiKey: 'test-key',
       openAIClient
     });
@@ -270,6 +271,7 @@ describe('server API services', () => {
       });
 
     const response = await handleTodoAgentMessage(db, user.id, '독서 삭제해줘', {
+      agentMode: 'openai',
       apiKey: 'test-key',
       openAIClient
     });
@@ -281,5 +283,25 @@ describe('server API services', () => {
     });
     expect(response.body.candidates).toHaveLength(2);
     await expect(listTodos(db, user.id)).resolves.toHaveLength(2);
+  });
+
+  it('Mock Todo Agent가 오늘 추가 요청을 API 없이 처리한다.', async () => {
+    const { db } = createTestContext();
+    const user = (await register(db)).body.user;
+
+    const response = await handleTodoAgentMessage(db, user.id, '오늘 운동하기 추가해줘');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      action: 'create_todo',
+      changed: true,
+      mode: 'mock'
+    });
+    const todos = await listTodos(db, user.id);
+    expect(todos).toHaveLength(1);
+    expect(todos[0]).toMatchObject({
+      title: '운동하기',
+      dueDate: new Date().toISOString().slice(0, 10)
+    });
   });
 });
