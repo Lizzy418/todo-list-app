@@ -436,12 +436,14 @@ const handleTodoAgentMessage = async (
       message: error.message
     });
 
+    const fallbackResult = await runMockAgent(db, userId, normalizedMessage);
+
     return {
-      status: 502,
+      ...fallbackResult,
       body: {
-        error: `OpenAI 요청 실패: ${error.message}`,
-        action: 'none',
-        changed: false
+        ...fallbackResult.body,
+        message: `${fallbackResult.body.message} OpenAI 한도 문제로 mock agent가 대신 처리했어요.`,
+        openAIError: error.message
       }
     };
   }

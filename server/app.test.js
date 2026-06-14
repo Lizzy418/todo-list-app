@@ -304,4 +304,25 @@ describe('server API services', () => {
       dueDate: new Date().toISOString().slice(0, 10)
     });
   });
+
+  it('OpenAI 요청 실패 시 mock agent로 대체 처리한다.', async () => {
+    const { db } = createTestContext();
+    const user = (await register(db)).body.user;
+    const openAIClient = vi.fn().mockRejectedValue(new Error('quota exceeded'));
+
+    const response = await handleTodoAgentMessage(db, user.id, '오늘 운동하기 추가해줘', {
+      agentMode: 'openai',
+      apiKey: 'test-key',
+      openAIClient
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      action: 'create_todo',
+      changed: true,
+      mode: 'mock',
+      openAIError: 'quota exceeded'
+    });
+    await expect(listTodos(db, user.id)).resolves.toHaveLength(1);
+  });
 });
